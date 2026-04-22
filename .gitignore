@@ -1,0 +1,17 @@
+# Environment / secrets — never commit these
+.env
+.env.*
+
+# Streamlit secrets — never commit the real one
+.streamlit/secrets.toml
+
+# Invoice counter (local state, not needed in repo)
+invoice_counter.json
+
+# Mac cruft
+.DS_Store
+
+# Node
+node_modules/
+package-lock.json
+package.json

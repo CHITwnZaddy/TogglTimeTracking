@@ -15,6 +15,14 @@ load_dotenv()
 COUNTER_FILE = Path(__file__).parent / "invoice_counter.json"
 
 
+def _get_secret(key: str, default: str = "") -> str:
+    """Read from st.secrets (Streamlit Cloud) or os.getenv (local .env)."""
+    try:
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        return os.getenv(key, default)
+
+
 def load_counters() -> dict:
     if COUNTER_FILE.exists():
         return json.loads(COUNTER_FILE.read_text())
@@ -22,7 +30,10 @@ def load_counters() -> dict:
 
 
 def save_counters(counters: dict) -> None:
-    COUNTER_FILE.write_text(json.dumps(counters, indent=2))
+    try:
+        COUNTER_FILE.write_text(json.dumps(counters, indent=2))
+    except OSError:
+        pass  # Read-only filesystem on some cloud hosts — counter resets gracefully
 
 
 def next_invoice_number(project: str, period_start: date) -> str:
@@ -48,14 +59,14 @@ with st.sidebar:
     st.header("Settings")
     api_token = st.text_input(
         "Toggl API Token",
-        value=os.getenv("TOGGL_API_TOKEN", ""),
+        value=_get_secret("TOGGL_API_TOKEN"),
         type="password",
         help="Profile Settings → Profile → API Token (bottom of page)",
     )
     hourly_rate = st.number_input(
         "Hourly Rate ($)",
         min_value=0.0,
-        value=float(os.getenv("HOURLY_RATE", 150)),
+        value=float(_get_secret("HOURLY_RATE", "150")),
         step=5.0,
         format="%.2f",
     )
