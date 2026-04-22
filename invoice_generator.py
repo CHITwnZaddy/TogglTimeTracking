@@ -2,11 +2,22 @@ import io
 import datetime
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, PatternFill
 
 
 FONT_NAME = "Actor Regular"
 FONT_SIZE = 12
+
+
+def _fill(hex_color: str) -> PatternFill:
+    """Return a solid PatternFill for the given hex color (no # prefix)."""
+    return PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+
+
+def _apply_row_fill(ws, row: int, fill: PatternFill, col_start: int = 1, col_end: int = 10) -> None:
+    """Paint every cell in a row with the given fill."""
+    for col in range(col_start, col_end + 1):
+        ws.cell(row=row, column=col).fill = fill
 
 
 def _seconds_to_time(seconds: int) -> datetime.time:
@@ -35,6 +46,12 @@ def generate_invoice(
     center = Alignment(horizontal="center", vertical="center")
     left = Alignment(horizontal="left", vertical="center")
     right = Alignment(horizontal="right", vertical="center")
+
+    # ── Row fills ─────────────────────────────────────────────────────────────
+    header_fill = _fill("C3C4EB")   # header row
+    white_fill   = _fill("FFFFFF")  # odd data rows
+    alt_fill     = _fill("EFF0FA")  # even data rows
+    total_fill   = _fill("E1E1F5")  # total row
 
     # ── Row 1: INVOICE # ────────────────────────────────────────────────────
     ws["A1"] = "INVOICE #: "
@@ -76,9 +93,10 @@ def generate_invoice(
         8: "Member",
         9: "Amount",
     }
+    _apply_row_fill(ws, 5, header_fill)
     for col, label in headers.items():
         cell = ws.cell(row=5, column=col, value=label)
-        cell.font = regular
+        cell.font = bold
         cell.alignment = center
     ws.row_dimensions[5].height = 27
 
@@ -87,6 +105,10 @@ def generate_invoice(
     for i, entry in enumerate(entries):
         row = data_start + i
         ws.row_dimensions[row].height = 27
+
+        # Alternating row background: row 0 → white, row 1 → light purple, etc.
+        row_fill = white_fill if i % 2 == 0 else alt_fill
+        _apply_row_fill(ws, row, row_fill)
 
         start_val = entry["start"].replace(tzinfo=None)
         stop_val = entry["stop"].replace(tzinfo=None) if entry["stop"] else None
@@ -102,36 +124,38 @@ def generate_invoice(
         ]
         for col, val, fmt, align in cells:
             c = ws.cell(row=row, column=col, value=val)
-            c.font = regular
+            c.font = bold if col == 2 else regular   # Bold start dates (col B)
             c.alignment = align
             c.number_format = fmt
 
         hours = entry["duration_seconds"] / 3600
         amount = round(hours * hourly_rate, 2)
         amt_cell = ws.cell(row=row, column=9, value=amount)
-        amt_cell.font = regular
+        amt_cell.font = bold   # Bold row amounts
         amt_cell.alignment = vcenter
         amt_cell.number_format = '#,##0.00\\ "USD"'
 
     # ── Total row ────────────────────────────────────────────────────────────
     total_row = data_start + len(entries)
     ws.row_dimensions[total_row].height = 27
+    _apply_row_fill(ws, total_row, total_fill)
 
     f_total = ws.cell(row=total_row, column=6, value="Total")
     f_total.font = bold
     f_total.alignment = right
 
-    g_total = ws.cell(
-        row=total_row,
-        column=7,
-        value=f"=(SUM(G{data_start}:G{total_row - 1}))",
-    )
+    # Calculate total hours in Python and round to the nearest quarter hour (0.25).
+    # Avoids Excel time-fraction arithmetic which caused the ":20" display bug.
+    total_seconds = sum(e["duration_seconds"] for e in entries)
+    total_hours_rounded = round(total_seconds / 3600 * 4) / 4
+
+    g_total = ws.cell(row=total_row, column=7, value=total_hours_rounded)
     g_total.font = bold
     g_total.alignment = left
-    g_total.number_format = "h:mm;@"
+    g_total.number_format = '0.00" hrs"'
 
     h_total = ws.cell(row=total_row, column=8, value="Total")
-    h_total.font = regular
+    h_total.font = bold
     h_total.alignment = right
 
     sheet_name = ws.title
@@ -140,7 +164,7 @@ def generate_invoice(
         column=9,
         value=f"=SUBTOTAL(109,'{sheet_name}'!$I${data_start}:$I${total_row - 1})",
     )
-    i_total.font = regular
+    i_total.font = bold
     i_total.alignment = vcenter
     i_total.number_format = '#,##0.00\\ "USD"'
 
