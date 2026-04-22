@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pyotp
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -52,6 +53,43 @@ def bump_counter(project: str) -> None:
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Toggl Invoice Generator", layout="wide")
+
+
+# ── MFA Login gate ────────────────────────────────────────────────────────────
+def check_login() -> bool:
+    return st.session_state.get("authenticated", False)
+
+
+def login_screen() -> None:
+    st.title("🔒 Toggl Invoice Generator")
+    st.markdown("Enter your password and authenticator code to continue.")
+
+    with st.form("login_form"):
+        password = st.text_input("Password", type="password")
+        totp_code = st.text_input("Authenticator Code (6 digits)", max_chars=6)
+        submitted = st.form_submit_button("Log In", type="primary")
+
+    if submitted:
+        correct_password = _get_secret("APP_PASSWORD")
+        totp_secret = _get_secret("TOTP_SECRET")
+
+        password_ok = password == correct_password
+        totp_ok = pyotp.TOTP(totp_secret).verify(totp_code, valid_window=1)
+
+        if password_ok and totp_ok:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        elif not password_ok:
+            st.error("Incorrect password.")
+        else:
+            st.error("Incorrect authenticator code. Make sure your phone's clock is synced.")
+
+
+if not check_login():
+    login_screen()
+    st.stop()  # Nothing below this runs until logged in
+
+
 st.title("Toggl Invoice Generator")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
