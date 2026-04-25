@@ -8,6 +8,9 @@
 # Invoice counter (local state, not needed in repo)
 invoice_counter.json
 
+# Client email map (contains PII — never commit)
+client_emails.json
+
 # Mac cruft
 .DS_Store
 

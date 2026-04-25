@@ -8,12 +8,20 @@ import pyotp
 import streamlit as st
 from dotenv import load_dotenv
 
+from email_sender import send_invoice_email
 from invoice_generator import generate_invoice
 from toggl_client import TogglClient
 
 load_dotenv()
 
 COUNTER_FILE = Path(__file__).parent / "invoice_counter.json"
+CLIENT_EMAILS_FILE = Path(__file__).parent / "client_emails.json"
+
+
+def load_client_emails() -> dict:
+    if CLIENT_EMAILS_FILE.exists():
+        return json.loads(CLIENT_EMAILS_FILE.read_text())
+    return {}
 
 
 def _get_secret(key: str, default: str = "") -> str:
@@ -214,9 +222,71 @@ if "entries" in st.session_state:
                 if len(selected_projects) == 1:
                     bump_counter(selected_projects[0])
 
-                st.download_button(
-                    label="⬇️ Download Invoice",
-                    data=xlsx,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+                # Persist across reruns so Download + Email can both use it
+                st.session_state["generated_xlsx"] = xlsx
+                st.session_state["generated_filename"] = filename
+                st.session_state["generated_invoice_number"] = invoice_number
+                st.session_state["generated_total_amount"] = total_amount
+                st.session_state["generated_period_start"] = start_date
+                st.session_state["generated_period_end"] = end_date
+
+        # ── Download & Email (shown after generation) ────────────────────────
+        if "generated_xlsx" in st.session_state:
+            st.download_button(
+                label="⬇️ Download Invoice",
+                data=st.session_state["generated_xlsx"],
+                file_name=st.session_state["generated_filename"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            st.divider()
+            st.subheader("📧 Email Invoice")
+
+            client_emails = load_client_emails()
+            default_to = (
+                client_emails.get(selected_projects[0], "")
+                if len(selected_projects) == 1
+                else ""
+            )
+
+            to = st.text_input("To (client)", value=default_to)
+            cc = st.text_input(
+                "Cc (yourself)", value=_get_secret("SMTP_USER")
+            )
+
+            gen_num = st.session_state["generated_invoice_number"]
+            gen_start = st.session_state["generated_period_start"]
+            gen_end = st.session_state["generated_period_end"]
+            gen_total = st.session_state["generated_total_amount"]
+
+            default_subject = (
+                f"Invoice {gen_num} — "
+                f"{gen_start.strftime('%m/%d/%Y')} to {gen_end.strftime('%m/%d/%Y')}"
+            )
+            subject = st.text_input("Subject", value=default_subject)
+
+            default_body = (
+                f"Hi,\n\n"
+                f"Please find attached invoice {gen_num} for the period "
+                f"{gen_start.strftime('%m/%d/%Y')}–{gen_end.strftime('%m/%d/%Y')}.\n\n"
+                f"Total: ${gen_total:,.2f} USD\n\n"
+                f"Thank you,\nAustin Guzman"
+            )
+            body = st.text_area("Message", value=default_body, height=200)
+
+            if st.button("Send Email", type="primary", disabled=not to):
+                with st.spinner("Sending…"):
+                    try:
+                        send_invoice_email(
+                            smtp_user=_get_secret("SMTP_USER"),
+                            smtp_password=_get_secret("SMTP_PASSWORD"),
+                            to_addrs=[to.strip()],
+                            cc_addrs=[cc.strip()] if cc else [],
+                            subject=subject,
+                            body=body,
+                            xlsx_bytes=st.session_state["generated_xlsx"],
+                            filename=st.session_state["generated_filename"],
+                        )
+                        st.success(f"✅ Sent to {to}")
+                    except Exception as e:
+                        st.error(f"Failed to send: {e}")
