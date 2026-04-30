@@ -14,8 +14,8 @@ def _fill(hex_color: str) -> PatternFill:
     return PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
 
 
-def _apply_row_fill(ws, row: int, fill: PatternFill, col_start: int = 1, col_end: int = 10) -> None:
-    """Paint every cell in a row with the given fill."""
+def _apply_row_fill(ws, row: int, fill: PatternFill, col_start: int = 2, col_end: int = 9) -> None:
+    """Paint cells in columns B–I only (data area). Columns A and J stay unfilled as visual margins."""
     for col in range(col_start, col_end + 1):
         ws.cell(row=row, column=col).fill = fill
 
